@@ -5,7 +5,14 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 from cvzone.HandTrackingModule import HandDetector
-from cri_lib import CRIController
+
+# cri_lib is optional; robot movement will be disabled if it's unavailable
+try:
+    from cri_lib import CRIController
+except ImportError:
+    CRIController = None
+    print('⚠ cri_lib not installed; robot connection disabled')
+
 import time
 import math
 import json
@@ -16,26 +23,24 @@ from threading import Thread
 import queue
 
 print('=' * 70)
-print('HAND GESTURE ROBOT CONTROL - STEREO VISION + ARUCO VERSION')
+print('HAND GESTURE ROBOT CONTROL - SINGLE CAMERA + ARUCO VERSION')
 print('=' * 70)
 
 # ── Robot connection ──────────────────────────────────────────────────────────
 IP_ADDRESS       = '192.168.3.11'
 PORT             = 3920
-CALIBRATION_FILE = 'stereo_calibration.json'
+CALIBRATION_FILE = 'single_camera_calibration.json'
 
 # ── Robot arm link lengths (meters, from manual) ─────────────────────────────
 L1 = 0.252   # Base  → Shoulder
 L2 = 0.237   # Shoulder → Elbow
 L3 = 0.420   # Elbow → End-effector
 
-# ── Stereo camera setup ───────────────────────────────────────────────────────
-STEREO_BASELINE   = 0.68   # Distance between cameras (meters)
-CAMERA_LEFT_ID    = 0
-CAMERA_RIGHT_ID   = 2
-CAMERA_WIDTH      = 1280
-CAMERA_HEIGHT     = 720
-CAMERA_FPS        = 60
+# ── Single camera setup ───────────────────────────────────────────────────────
+CAMERA_ID        = 0
+CAMERA_WIDTH     = 1280
+CAMERA_HEIGHT    = 720
+CAMERA_FPS       = 60
 
 # ── Fallback robot base offset (used ONLY if ArUco markers are not visible) ──
 # When ArUco is working these values are ignored.
@@ -48,8 +53,8 @@ HAND_HOLD_TIME               = 5.0   # seconds hand must be held steady
 POSITION_STABILITY_THRESHOLD = 0.02  # meters
 COOLDOWN_TIME                = 5.0   # seconds after move completes
 
-# ── Stereo disparity settings ─────────────────────────────────────────────────
-USE_DISPARITY_CALCULATION  = True
+# ── Disparity/depth settings (not used in single camera) ─────────────────────
+USE_DISPARITY_CALCULATION  = False
 DISPARITY_NUM_DISPARITIES  = 16 * 5
 DISPARITY_BLOCK_SIZE       = 15
 

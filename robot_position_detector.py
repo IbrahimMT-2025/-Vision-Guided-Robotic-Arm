@@ -1,6 +1,7 @@
 # robot_position_detector.py
 # RobotPositionDetector class
 
+import cv2
 import cv2.aruco as aruco
 import numpy as np
 from config import MARKER_SIZE_METERS, MARKER_OFFSETS

@@ -1,15 +1,128 @@
 # tracking.py
-# Main tracking function
+# Main tracking function (single camera version)
 
 import cv2
 import time
+import math
 from cvzone.HandTrackingModule import HandDetector
 from enums import SystemState
 from robot_state_controller import RobotStateController
-from stereo_frame_capture import StereoFrameCapture
-from debug_utils import debug_rectification
-from config import CAMERA_LEFT_ID, CAMERA_RIGHT_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS, HAND_HOLD_TIME, ROBOT_BASE_X, ROBOT_BASE_Y, ROBOT_BASE_Z
+from single_camera_capture import SingleCameraCapture
+from config import CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS, HAND_HOLD_TIME, ROBOT_BASE_X, ROBOT_BASE_Y, ROBOT_BASE_Z
 
+
+def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
+    """Real-time hand tracking using a single camera plus optional ArUco robot pose.
+
+    Depth (Z) is estimated from the pixel width of the hand using a simple
+    pinhole-camera model.  X/Y are computed by unprojecting the fingertip
+    coordinate using the calibrated intrinsics and the estimated Z.
+    """
+    if not calib.is_calibrated:
+        print('⚠  Camera calibration not complete — run calibration first')
+        return
+
+    print('\n=== TRACKING MODE (SINGLE CAMERA + ARUCO) ===')
+    print('Hand tracking active. Press q to quit.\n')
+
+    frame_capture = SingleCameraCapture(CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
+    frame_capture.start()
+    time.sleep(2)  # let camera warm up
+
+    detector = HandDetector(detectionCon=0.8, maxHands=1)
+    state_controller = RobotStateController(robot_manager, robot_detector)
+
+    frame_count = 0
+    STATE_COLORS = {
+        SystemState.IDLE:            (0, 255, 0),
+        SystemState.TRACKING:        (255, 255, 0),
+        SystemState.POSITION_LOCKED: (0, 255, 255),
+        SystemState.EXECUTING:       (0, 0, 255),
+        SystemState.COOLDOWN:        (255, 0, 255),
+    }
+
+    try:
+        while True:
+            frame = frame_capture.get_frame(timeout=0.5)
+            if frame is None:
+                continue
+            frame_count += 1
+
+            # ArUco robot position detection on the current frame
+            if robot_detector is not None:
+                _, frame = robot_detector.detect(frame)
+
+            hands, frame = detector.findHands(frame)
+            hand_detected = False
+            world_x = world_y = world_z = None
+
+            if hands:
+                try:
+                    lm_list = hands[0]['lmList']
+                    fingertip = lm_list[8]
+                    pixel = (int(fingertip[0]), int(fingertip[1]))
+
+                    # estimate depth using hand width (landmarks 0 and 5)
+                    pixel_width = int(math.dist(lm_list[0], lm_list[5]))
+                    world_z = calib.estimate_depth(pixel_width)
+
+                    if world_z is not None and world_z > 0:
+                        # unproject X/Y
+                        fx = calib.camera_matrix[0, 0]
+                        fy = calib.camera_matrix[1, 1]
+                        cx = calib.camera_matrix[0, 2]
+                        cy = calib.camera_matrix[1, 2]
+                        world_x = (pixel[0] - cx) * world_z / fx
+                        world_y = (pixel[1] - cy) * world_z / fy
+                        hand_detected = True
+
+                        cv2.circle(frame, pixel, 10, (0, 255, 0), -1)
+                        cv2.putText(frame,
+                                    f'Camera: ({world_x:.3f}, {world_y:.3f}, {world_z:.3f})',
+                                    (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+
+                        if robot_detector is not None and robot_detector.is_detected:
+                            rel = robot_detector.get_robot_to_hand_vector((world_x, world_y, world_z))
+                            if rel is not None:
+                                cv2.putText(frame,
+                                            f'Robot:  ({rel[0]:.3f}, {rel[1]:.3f}, {rel[2]:.3f}) [ArUco]',
+                                            (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
+                        elif robot_detector is not None:
+                            cv2.putText(frame,
+                                        'WARNING: ArUco not visible',
+                                        (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+                        else:
+                            cv2.putText(frame,
+                                        f'Robot: ({world_x-ROBOT_BASE_X:.3f}, {world_y-ROBOT_BASE_Y:.3f}, {world_z-ROBOT_BASE_Z:.3f}) [fixed]',
+                                        (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
+
+                except Exception as e:
+                    print(f'⚠ Tracking error: {e}')
+
+            # state machine update
+            state = state_controller.update(hand_detected, world_x, world_y, world_z)
+
+            color = STATE_COLORS.get(state, (128,128,128))
+            cv2.putText(frame, f'STATE: {state_controller.get_state_name()}',
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            if state == SystemState.TRACKING:
+                remaining = max(0, HAND_HOLD_TIME - state_controller.get_time_in_state())
+                cv2.putText(frame, f'HOLD: {remaining:.1f}s', (10, 70),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,200,0), 2)
+
+            cv2.putText(frame, f'Frame: {frame_count}  |  q = quit',
+                        (10, CAMERA_HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
+
+            cv2.imshow('Single Camera', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        frame_capture.stop()
+        cv2.destroyAllWindows()
+        print('✓ Tracking stopped')
+
+print('✓ run_single_camera_tracking_mode defined')
 def run_stereo_tracking_mode(stereo_calib, robot_manager, robot_detector=None):
     """
     Real-time stereo hand tracking with ArUco-based robot base detection.

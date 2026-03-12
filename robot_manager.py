@@ -3,22 +3,36 @@
 
 import time
 import math
-from cri_lib import CRIController
+
+# cri_lib may not be installed in this environment
+try:
+    from cri_lib import CRIController
+except ImportError:
+    CRIController = None
+    print('⚠ cri_lib not installed; robot functions will be no-ops')
+
 from config import L1, L2, L3
 
 class RobotManager:
     """Connect to, control, and disconnect from the CRI robot."""
 
     def __init__(self, ip, port):
-        self.controller       = CRIController()
         self.ip               = ip
         self.port             = port
         self.is_connected     = False
         self.current_position = {k: 0 for k in ['A1','A2','A3','A4','A5','A6','E1','E2','E3']}
+        if CRIController is not None:
+            self.controller = CRIController()
+        else:
+            self.controller = None
 
     # ── Connection lifecycle ──────────────────────────────────────────────────
 
     def connect(self):
+        if self.controller is None:
+            print('⚠ Robot controller not available; skipping connection')
+            return False
+
         print('Connecting to robot...')
         if not self.controller.connect(self.ip, self.port):
             print('✗ Connection failed')
@@ -39,7 +53,7 @@ class RobotManager:
         return True
 
     def disconnect(self):
-        if self.is_connected:
+        if self.is_connected and self.controller is not None:
             print('\nShutting down robot...')
             self.controller.disable()
             self.controller.close()
@@ -49,8 +63,8 @@ class RobotManager:
     # ── Motion ────────────────────────────────────────────────────────────────
 
     def move_to_target(self, target_x, target_y, target_z, velocity=50):
-        if not self.is_connected:
-            print('⚠  Robot not connected')
+        if self.controller is None or not self.is_connected:
+            print('⚠  Robot not connected or controller unavailable')
             return False
         try:
             A1, A2, A3, A4, A5, A6 = self.calculate_inverse_kinematics(

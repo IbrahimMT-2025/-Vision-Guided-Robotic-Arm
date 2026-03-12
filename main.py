@@ -3,21 +3,21 @@
 
 import time
 import cv2
-from config import CALIBRATION_FILE, IP_ADDRESS, PORT, CAMERA_LEFT_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS
-from stereo_calibration import StereoCalibration
+from config import CALIBRATION_FILE, IP_ADDRESS, PORT, CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS
+from single_camera_calibration import SingleCameraCalibration
 from robot_position_detector import RobotPositionDetector
 from robot_manager import RobotManager
-from tracking import run_stereo_tracking_mode
+from tracking import run_single_camera_tracking_mode
 
 # ─────────────────────────────────────────────────────────────────────────
-# STEP 1 — STEREO CALIBRATION
+# STEP 1 — CAMERA CALIBRATION
 # ─────────────────────────────────────────────────────────────────────────
 print('=' * 60)
-print('STEP 1 — STEREO CALIBRATION')
+print('STEP 1 — SINGLE-CAMERA CALIBRATION')
 print('=' * 60)
 
-stereo_calib = StereoCalibration()
-calibration_loaded = stereo_calib.load(CALIBRATION_FILE)
+camera_calib = SingleCameraCalibration()
+calibration_loaded = camera_calib.load(CALIBRATION_FILE)
 
 if calibration_loaded:
     print(f'✓ Found existing calibration file: {CALIBRATION_FILE}')
@@ -32,9 +32,9 @@ else:
     print('→ Will run new calibration.')
 
 if not calibration_loaded:
-    print('\nStarting stereo calibration wizard...')
-    if stereo_calib.calibrate_stereo_automatic():
-        stereo_calib.save(CALIBRATION_FILE)
+    print('\nStarting calibration wizard...')
+    if camera_calib.calibrate_checkerboard():
+        camera_calib.save(CALIBRATION_FILE)
         print('✓ Calibration complete and saved.')
     else:
         print('✗ Calibration failed. Cannot continue.')
@@ -46,7 +46,7 @@ print()
 if not calibration_loaded:
     print('⛔ Calibration not complete — re-run this cell before continuing.')
 else:
-    pass  # continue below
+    pass  # calibration done, continue
 
 # ─────────────────────────────────────────────────────────────────────────
 # STEP 2 — DETECT ROBOT VIA ARUCO MARKERS  (only runs if calibration_loaded)
@@ -59,11 +59,11 @@ print('Press any key to capture a frame for detection.')
 print()
 
 robot_detector = RobotPositionDetector(
-    camera_matrix=stereo_calib.camera_matrix_left,
-    dist_coeffs=stereo_calib.dist_coeffs_left
+    camera_matrix=camera_calib.camera_matrix,
+    dist_coeffs=camera_calib.dist_coeffs
 )
 
-cap_check = cv2.VideoCapture(CAMERA_LEFT_ID)
+cap_check = cv2.VideoCapture(CAMERA_ID)
 cap_check.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
 cap_check.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 cap_check.set(cv2.CAP_PROP_FPS,          CAMERA_FPS)
@@ -145,7 +145,7 @@ print('STEP 4 — STARTING TRACKING LOOP')
 print('=' * 60)
 
 try:
-    run_stereo_tracking_mode(stereo_calib, robot_manager, robot_detector)
+    run_single_camera_tracking_mode(camera_calib, robot_manager, robot_detector)
 except KeyboardInterrupt:
     print('\nInterrupted by user.')
 finally:
