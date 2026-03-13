@@ -8,10 +8,92 @@ from cvzone.HandTrackingModule import HandDetector
 from enums import SystemState
 from robot_state_controller import RobotStateController
 from single_camera_capture import SingleCameraCapture
+
+# Try to use cvzone HandDetector, fallback to custom implementation if cvzone fails
+try:
+    detector = HandDetector(detectionCon=0.8, maxHands=1)
+    USE_CUSTOM_DETECTOR = False
+except AttributeError:
+    print("⚠ cvzone HandDetector failed, using basic fallback detector")
+    import mediapipe as mp
+
+    class BasicHandDetector:
+        def __init__(self, detectionCon=0.8, maxHands=1):
+            print("🔧 Using basic hand detection (motion-based)")
+            self.detection_confidence = detectionCon
+            self.prev_frame = None
+            self.frame_count = 0
+            self.hand_present_frames = 0
+
+        def findHands(self, img, draw=True):
+            self.frame_count += 1
+
+            # Convert to grayscale for motion detection
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+            hands = []
+
+            if self.prev_frame is not None:
+                # Calculate frame difference
+                frame_delta = cv2.absdiff(self.prev_frame, gray)
+                thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
+                thresh = cv2.dilate(thresh, None, iterations=2)
+
+                # Find contours
+                contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                motion_detected = False
+                for contour in contours:
+                    if cv2.contourArea(contour) > 3000:  # Minimum area for hand-sized motion
+                        motion_detected = True
+
+                        # Get bounding box
+                        x, y, w, h = cv2.boundingRect(contour)
+
+                        # Create hand-like structure for compatibility
+                        hand = {
+                            'lmList': [
+                                [0, x + w//2, y + h//2],  # Center point (like fingertip)
+                                [1, x + w//4, y + h//4],  # Top-left
+                                [2, x + 3*w//4, y + h//4],  # Top-right
+                                [3, x + w//4, y + 3*h//4],  # Bottom-left
+                                [4, x + 3*w//4, y + 3*h//4],  # Bottom-right
+                                [5, x + w//2, y + h//4],  # Top-center
+                                [6, x + w//4, y + h//2],  # Left-center
+                                [7, x + 3*w//4, y + h//2],  # Right-center
+                                [8, x + w//2, y + 3*h//4],  # Bottom-center
+                            ],
+                            'bbox': [x, y, w, h],
+                            'center': [x + w//2, y + h//2],
+                            'type': 'Motion'
+                        }
+                        hands.append(hand)
+
+                        if draw:
+                            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                            cv2.circle(img, (x + w//2, y + h//2), 5, (0, 0, 255), -1)
+
+                        break  # Only return one hand
+
+                if motion_detected:
+                    self.hand_present_frames += 1
+                else:
+                    self.hand_present_frames = max(0, self.hand_present_frames - 1)
+
+                # Only consider hand present if motion detected in recent frames
+                if self.hand_present_frames < 3:
+                    hands = []
+
+            self.prev_frame = gray.copy()
+            return hands, img
+
+    USE_CUSTOM_DETECTOR = True
+    CustomHandDetector = BasicHandDetector
 from config import CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS, HAND_HOLD_TIME, ROBOT_BASE_X, ROBOT_BASE_Y, ROBOT_BASE_Z
 
 
-def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
+def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None, robot_base_position=None):
     """Real-time hand tracking using a single camera plus optional ArUco robot pose.
 
     Depth (Z) is estimated from the pixel width of the hand using a simple
@@ -29,8 +111,13 @@ def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
     frame_capture.start()
     time.sleep(2)  # let camera warm up
 
-    detector = HandDetector(detectionCon=0.8, maxHands=1)
-    state_controller = RobotStateController(robot_manager, robot_detector)
+    # Use the appropriate detector
+    if USE_CUSTOM_DETECTOR:
+        detector = BasicHandDetector(detectionCon=0.8, maxHands=1)
+    else:
+        detector = HandDetector(detectionCon=0.8, maxHands=1)
+
+    state_controller = RobotStateController(robot_manager, robot_detector, robot_base_position)
 
     frame_count = 0
     STATE_COLORS = {
@@ -92,9 +179,18 @@ def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
                                         'WARNING: ArUco not visible',
                                         (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
                         else:
-                            cv2.putText(frame,
-                                        f'Robot: ({world_x-ROBOT_BASE_X:.3f}, {world_y-ROBOT_BASE_Y:.3f}, {world_z-ROBOT_BASE_Z:.3f}) [fixed]',
-                                        (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
+                            # Use the provided robot_base_position
+                            if robot_base_position is not None:
+                                rel_x = world_x - robot_base_position[0]
+                                rel_y = world_y - robot_base_position[1]
+                                rel_z = world_z - robot_base_position[2]
+                                cv2.putText(frame,
+                                            f'Robot: ({rel_x:.3f}, {rel_y:.3f}, {rel_z:.3f}) [base pose]',
+                                            (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
+                            else:
+                                cv2.putText(frame,
+                                            f'Robot: ({world_x-ROBOT_BASE_X:.3f}, {world_y-ROBOT_BASE_Y:.3f}, {world_z-ROBOT_BASE_Z:.3f}) [fixed]',
+                                            (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
 
                 except Exception as e:
                     print(f'⚠ Tracking error: {e}')

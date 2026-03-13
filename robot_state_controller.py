@@ -15,11 +15,12 @@ class RobotStateController:
     otherwise the fallback ROBOT_BASE_X/Y/Z constants are used.
     """
 
-    def __init__(self, robot_manager, robot_detector=None):
+    def __init__(self, robot_manager, robot_detector=None, robot_base_position=None):
         self.state             = SystemState.IDLE
         self.state_enter_time  = time.time()
         self.robot_manager     = robot_manager
         self.robot_detector    = robot_detector   # ArUco detector (can be None)
+        self.robot_base_position = robot_base_position  # Manual base position (can be None)
         self.position_history  = PositionHistory()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -41,7 +42,8 @@ class RobotStateController:
 
         Priority:
           1. ArUco live detection  (accurate, dynamic)
-          2. Hardcoded fallback    (ROBOT_BASE_X/Y/Z)
+          2. Manual base position   (user-provided, static)
+          3. Hardcoded fallback    (ROBOT_BASE_X/Y/Z)
 
         Returns (rel_x, rel_y, rel_z) or (None, None, None) if ArUco
         is the chosen method but robot is not currently visible.
@@ -55,6 +57,9 @@ class RobotStateController:
                 # Robot markers not visible — unsafe to move
                 print('[WARNING] ArUco markers not visible — movement blocked')
                 return None, None, None
+        elif self.robot_base_position is not None:
+            # Use manual base position
+            return cam_x - self.robot_base_position[0], cam_y - self.robot_base_position[1], cam_z - self.robot_base_position[2]
         else:
             # Fallback: static offsets
             return cam_x - ROBOT_BASE_X, cam_y - ROBOT_BASE_Y, cam_z - ROBOT_BASE_Z
