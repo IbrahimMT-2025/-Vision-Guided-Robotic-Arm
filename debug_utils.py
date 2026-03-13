@@ -17,4 +17,4 @@ def debug_rectification(stereo_calib, frame_left, frame_right):
         cv2.line(combined, (0, y), (combined.shape[1], y), (0, 255, 0), 1)
     cv2.imshow('Rectification Check', combined)
 
-print('✓ debug_rectification helper defined')
+print('[OK] debug_rectification helper defined')

@@ -3,7 +3,16 @@
 
 import cv2
 import time
-from cvzone.HandTrackingModule import HandDetector
+
+# try to import the cvzone hand detector; if mediapipe API has changed or the
+# dependency is missing we fall back to a no-op detector (tracking will still
+# run but without hand data).
+try:
+    from cvzone.HandTrackingModule import HandDetector
+except Exception as e:
+    print(f"⚠  Warning: could not import HandDetector ({e})")
+    HandDetector = None
+
 from enums import SystemState
 from robot_state_controller import RobotStateController
 from stereo_frame_capture import StereoFrameCapture
@@ -38,7 +47,14 @@ def run_stereo_tracking_mode(stereo_calib, robot_manager, robot_detector=None):
     frame_capture.start()
     time.sleep(2)   # Camera warm-up
 
-    detector = HandDetector(detectionCon=0.8, maxHands=1)
+    if HandDetector is not None:
+        try:
+            detector = HandDetector(detectionCon=0.8, maxHands=1)
+        except Exception as e:
+            print(f"⚠  HandDetector initialization failed: {e}")
+            detector = None
+    else:
+        detector = None
 
     # ── ArUco robot position detector (uses LEFT camera calibration) ──────────
     # robot_detector is passed in from main() startup sequence
@@ -68,11 +84,13 @@ def run_stereo_tracking_mode(stereo_calib, robot_manager, robot_detector=None):
                 _, frame_left = robot_detector.detect(frame_left)
 
             # ── Step 3: Detect hand landmarks ─────────────────────────────────
-            hands_left,  frame_left  = detector.findHands(frame_left)
-            hands_right, frame_right = detector.findHands(frame_right)
-
             hand_detected = False
             world_x = world_y = world_z = None
+            if detector is not None:
+                hands_left,  frame_left  = detector.findHands(frame_left)
+                hands_right, frame_right = detector.findHands(frame_right)
+            else:
+                hands_left = hands_right = []
 
             if hands_left and hands_right:
                 try:
@@ -144,6 +162,6 @@ def run_stereo_tracking_mode(stereo_calib, robot_manager, robot_detector=None):
     finally:
         frame_capture.stop()
         cv2.destroyAllWindows()
-        print('✓ Tracking stopped')
+        print('[OK] Tracking stopped')
 
-print('✓ run_stereo_tracking_mode defined')
+print('[OK] run_stereo_tracking_mode defined')

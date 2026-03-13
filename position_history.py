@@ -39,4 +39,4 @@ class PositionHistory:
     def clear(self):
         self.history.clear()
 
-print('✓ PositionHistory class defined')
+print('[OK] PositionHistory class defined')

@@ -31,8 +31,10 @@ L3 = 0.420   # Elbow → End-effector
 
 # ── Stereo camera setup ───────────────────────────────────────────────────────
 STEREO_BASELINE   = 0.68   # Distance between cameras (meters)
+# the left/right ID values depend on how the OS enumerates your USB cameras.
+# Common pairs are (0,1) or (1,2); change them if one of the feeds fails to open.
 CAMERA_LEFT_ID    = 0
-CAMERA_RIGHT_ID   = 2
+CAMERA_RIGHT_ID   = 1   # adjust to 2 or another index if your right camera is not found
 CAMERA_WIDTH      = 1280
 CAMERA_HEIGHT     = 720
 CAMERA_FPS        = 60
@@ -65,4 +67,4 @@ MARKER_OFFSETS = {
     3: np.array([-0.15,  0.0,  0.0 ]),  # Left face
 }
 
-print('✓ Configuration loaded')
+print('[OK] Configuration loaded')

@@ -11,4 +11,4 @@ class SystemState(Enum):
     EXECUTING       = 4   # Robot is moving
     COOLDOWN        = 5   # Waiting before accepting next command
 
-print('✓ SystemState enum defined')
+print('[OK] SystemState enum defined')

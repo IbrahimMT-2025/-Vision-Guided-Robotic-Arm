@@ -126,6 +126,8 @@ class StereoCalibration:
         # (same as the working single-camera test)
         CALIB_W, CALIB_H = 640, 480
 
+        # open video captures using the configured indices
+        print(f'Using camera IDs left={CAMERA_LEFT_ID}, right={CAMERA_RIGHT_ID}')
         cap_left  = cv2.VideoCapture(CAMERA_LEFT_ID)
         cap_right = cv2.VideoCapture(CAMERA_RIGHT_ID)
 
@@ -313,4 +315,4 @@ class StereoCalibration:
             print(f'⚠  Disparity error: {e}')
             return None, None
 
-print('✓ StereoCalibration class defined')
+print('[OK] StereoCalibration class defined')

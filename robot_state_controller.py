@@ -119,4 +119,4 @@ class RobotStateController:
 
         return self.state
 
-print('✓ RobotStateController class defined')
+print('[OK] RobotStateController class defined')

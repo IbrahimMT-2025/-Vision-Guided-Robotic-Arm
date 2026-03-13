@@ -1,6 +1,13 @@
 # main.py
 # Entry point for the hand gesture robot control system
 
+import sys
+import os
+import io
+
+# Set UTF-8 encoding for console output
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import time
 import cv2
 from config import CALIBRATION_FILE, IP_ADDRESS, PORT, CAMERA_LEFT_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS
@@ -17,19 +24,25 @@ print('STEP 1 — STEREO CALIBRATION')
 print('=' * 60)
 
 stereo_calib = StereoCalibration()
+print(f'Working dir: {os.getcwd()}')
+print(f'Looking for calibration file at: {CALIBRATION_FILE} (exists? {os.path.exists(CALIBRATION_FILE)})')
 calibration_loaded = stereo_calib.load(CALIBRATION_FILE)
+
+# allow automated scripts to bypass the prompt by setting AUTO_CALIB=1
+auto_accept = os.environ.get('AUTO_CALIB', '') == '1'
 
 if calibration_loaded:
     print(f'✓ Found existing calibration file: {CALIBRATION_FILE}')
-    choice = input('Use existing calibration? (y = use it / n = recalibrate): ').strip().lower()
-    if choice != 'y':
-        calibration_loaded = False
-        print('→ Will run new calibration.')
+    if auto_accept or not sys.stdin.isatty():
+        # non‑interactive environment or user opted in
+        print('→ Using existing calibration (auto)')
     else:
-        print('→ Using existing calibration.')
-else:
-    print(f'⚠  No calibration file found ({CALIBRATION_FILE}).')
-    print('→ Will run new calibration.')
+        choice = input('Use existing calibration? (y = use it / n = recalibrate): ').strip().lower()
+        if choice != 'y':
+            calibration_loaded = False
+            print('→ Will run new calibration.')
+        else:
+            print('→ Using existing calibration.')
 
 if not calibration_loaded:
     print('\nStarting stereo calibration wizard...')
@@ -45,8 +58,12 @@ print()
 
 if not calibration_loaded:
     print('⛔ Calibration not complete — re-run this cell before continuing.')
-else:
-    pass  # continue below
+    sys.exit(1)  # Exit if calibration failed
+
+# double‑check that the loaded data actually contains a usable left camera matrix
+if stereo_calib.camera_matrix_left is None or stereo_calib.camera_matrix_left.shape != (3, 3):
+    print('⛔ Loaded calibration is invalid — cannot run robot detection.')
+    sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────────────────
 # STEP 2 — DETECT ROBOT VIA ARUCO MARKERS  (only runs if calibration_loaded)

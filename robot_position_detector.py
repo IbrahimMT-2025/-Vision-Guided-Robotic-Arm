@@ -1,6 +1,7 @@
 # robot_position_detector.py
 # RobotPositionDetector class
 
+import cv2
 import cv2.aruco as aruco
 import numpy as np
 from config import MARKER_SIZE_METERS, MARKER_OFFSETS
@@ -15,6 +16,13 @@ class RobotPositionDetector:
     """
 
     def __init__(self, camera_matrix, dist_coeffs):
+        # validate the calibration data early so we fail fast if something
+        # went wrong with stereo calibration.
+        if camera_matrix is None or camera_matrix.shape != (3, 3):
+            print('⚠  Invalid camera_matrix passed to RobotPositionDetector '
+                  f'(got {camera_matrix})')
+            # keep the attribute but mark as unusable; calls to detect() will
+            # short‑circuit and avoid triggering OpenCV errors.
         self.camera_matrix = camera_matrix
         self.dist_coeffs   = dist_coeffs
 
@@ -29,7 +37,7 @@ class RobotPositionDetector:
         self.is_detected     = False
         self.last_seen_marker = None
 
-        print('✓ RobotPositionDetector ready (ArUco DICT_4X4_50)')
+        print('[OK] RobotPositionDetector ready (ArUco DICT_4X4_50)')
 
     # ── Core detection ────────────────────────────────────────────────────────
 
@@ -53,6 +61,13 @@ class RobotPositionDetector:
         corners, ids, _ = self.detector.detectMarkers(gray)
         annotated = frame.copy()
 
+        # if calibration data is invalid, bail out gracefully rather than
+        # calling estimatePoseSingleMarkers with a bogus matrix.
+        if self.camera_matrix is None or self.camera_matrix.shape != (3, 3):
+            cv2.putText(annotated, 'Robot: NO CALIBRATION', (10, 200),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            return None, annotated
+
         if ids is None:
             self.is_detected = False
             cv2.putText(annotated, 'Robot: NOT DETECTED', (10, 200),
@@ -68,11 +83,19 @@ class RobotPositionDetector:
             if marker_id not in MARKER_OFFSETS:
                 continue  # Unknown marker — skip
 
-            # Estimate this marker's pose in camera space
-            rvec, tvec, _ = aruco.estimatePoseSingleMarkers(
-                corners[i], MARKER_SIZE_METERS,
-                self.camera_matrix, self.dist_coeffs
-            )
+            # Estimate this marker's pose in camera space (wrap in try/except
+            # because invalid calibration data can raise cv2.error).  The
+            # earlier short-circuit should prevent this, but defensively handle
+            # it anyway.
+            try:
+                rvec, tvec, _ = aruco.estimatePoseSingleMarkers(
+                    corners[i], MARKER_SIZE_METERS,
+                    self.camera_matrix, self.dist_coeffs
+                )
+            except cv2.error as e:
+                print(f'⚠  pose estimation failed: {e}')
+                continue
+
             rvec = rvec[0][0]
             tvec = tvec[0][0]   # marker origin in camera coords
 
@@ -141,4 +164,4 @@ class RobotPositionDetector:
             return None
         return np.array(hand_position) - self.robot_position
 
-print('✓ RobotPositionDetector class defined')
+print('[OK] RobotPositionDetector class defined')

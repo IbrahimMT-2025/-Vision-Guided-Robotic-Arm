@@ -47,7 +47,16 @@ python main.py
 1. Install dependencies (OpenCV, cvzone, cri_lib, etc.) - already done in `gesture_final` environment
 2. Run `python aruco_generator.py` to generate marker images
 3. Print markers at 10cm x 10cm and attach to robot base
-4. Run the project using one of the methods above
+4. **Verify camera indices** – the default configuration assumes `left=0` and `right=1`. If the program complains that it cannot open one of the cameras, edit `config.py` and try other indices (e.g. `right=2`);
+   you can also run a quick test with OpenCV in a Python REPL:
+   ```python
+   import cv2
+   for i in range(4):
+       cap = cv2.VideoCapture(i)
+       print(i, cap.isOpened())
+       cap.release()
+   ```
+5. Run the project using one of the methods above
 
 ## Features
 

@@ -54,6 +54,6 @@ class StereoFrameCapture:
         self.running = False
         if self.cap_left:  self.cap_left.release()
         if self.cap_right: self.cap_right.release()
-        print('✓ Stereo capture stopped')
+        print('[OK] Stereo capture stopped')
 
-print('✓ StereoFrameCapture class defined')
+print('[OK] StereoFrameCapture class defined')

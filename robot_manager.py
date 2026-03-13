@@ -100,4 +100,4 @@ class RobotManager:
             print(f'  ⚠  IK error: {e}')
             return None, None, None, None, None, None
 
-print('✓ RobotManager class defined')
+print('[OK] RobotManager class defined')
