@@ -8,15 +8,72 @@ from cvzone.HandTrackingModule import HandDetector
 from enums import SystemState
 from robot_state_controller import RobotStateController
 from single_camera_capture import SingleCameraCapture
-from config import CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS, HAND_HOLD_TIME, ROBOT_BASE_X, ROBOT_BASE_Y, ROBOT_BASE_Z
+from config import (CAMERA_ID, CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS, HAND_HOLD_TIME, 
+                    ROBOT_BASE_X, ROBOT_BASE_Y, ROBOT_BASE_Z, FOCAL_LENGTH, 
+                    INDEX_FINGER_WIDTH, Z_SMOOTH_FACTOR)
+
+
+# ============================================================================
+# DEPTH FILTERING AND ESTIMATION
+# ============================================================================
+
+class DepthFilter:
+    """Exponential smoothing filter for depth values."""
+    def __init__(self, factor=Z_SMOOTH_FACTOR):
+        self.factor = factor
+        self.z = None
+
+    def filter(self, z):
+        """Apply exponential smoothing to depth value."""
+        if self.z is None:
+            self.z = z
+            return z
+        self.z = self.factor * z + (1 - self.factor) * self.z
+        return self.z
+
+    def reset(self):
+        """Reset filter state."""
+        self.z = None
+
+
+def calculate_hand_depth(hand, fx=FOCAL_LENGTH):
+    """
+    Estimate depth from index-finger MCP(5)→PIP(6) pixel segment width.
+    
+    Parameters
+    ----------
+    hand : dict
+        Hand detection dict with 'lmList' containing landmarks (from cvzone)
+    fx : float
+        Calibrated focal length in pixels
+    
+    Returns
+    -------
+    float or None
+        Estimated depth in metres, or None if calculation fails
+    """
+    try:
+        lm = hand['lmList']
+        mcp, pip = lm[5], lm[6]  # Index finger MCP and PIP joints
+        px_w = math.hypot(pip[0] - mcp[0], pip[1] - mcp[1])
+        
+        if px_w < 5:  # pixel width too small for reliable depth
+            return None
+        
+        DEPTH_SCALE = 1.0
+        z = (INDEX_FINGER_WIDTH * fx / px_w) * DEPTH_SCALE
+        return max(0.05, min(1.5, z))  # clamp to reasonable range
+    except Exception:
+        return None
 
 
 def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
-    """Real-time hand tracking using a single camera plus optional ArUco robot pose.
+    """
+    Real-time hand tracking using a single camera plus optional ArUco robot pose.
 
-    Depth (Z) is estimated from the pixel width of the hand using a simple
-    pinhole-camera model.  X/Y are computed by unprojecting the fingertip
-    coordinate using the calibrated intrinsics and the estimated Z.
+    Depth (Z) is estimated from index-finger MCP→PIP pixel segment width.
+    X/Y are computed by unprojecting the fingertip coordinate using the 
+    calibrated intrinsics and the estimated Z.
     """
     if not calib.is_calibrated:
         print('⚠  Camera calibration not complete — run calibration first')
@@ -31,6 +88,7 @@ def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
 
     detector = HandDetector(detectionCon=0.8, maxHands=1)
     state_controller = RobotStateController(robot_manager, robot_detector)
+    depth_filter = DepthFilter()
 
     frame_count = 0
     STATE_COLORS = {
@@ -62,12 +120,14 @@ def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
                     fingertip = lm_list[8]
                     pixel = (int(fingertip[0]), int(fingertip[1]))
 
-                    # estimate depth using hand width (landmarks 0 and 5)
-                    pixel_width = int(math.dist(lm_list[0], lm_list[5]))
-                    world_z = calib.estimate_depth(pixel_width)
+                    # Estimate depth using index finger MCP→PIP width (improved method)
+                    z_raw = calculate_hand_depth(hands[0], fx=calib.camera_matrix[0, 0])
+                    
+                    if z_raw is not None:
+                        # Apply smoothing filter
+                        world_z = depth_filter.filter(z_raw)
 
-                    if world_z is not None and world_z > 0:
-                        # unproject X/Y
+                        # Unproject X/Y using calibrated camera matrix
                         fx = calib.camera_matrix[0, 0]
                         fy = calib.camera_matrix[1, 1]
                         cx = calib.camera_matrix[0, 2]
@@ -95,9 +155,15 @@ def run_single_camera_tracking_mode(calib, robot_manager, robot_detector=None):
                             cv2.putText(frame,
                                         f'Robot: ({world_x-ROBOT_BASE_X:.3f}, {world_y-ROBOT_BASE_Y:.3f}, {world_z-ROBOT_BASE_Z:.3f}) [fixed]',
                                         (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,165,255), 2)
+                    else:
+                        depth_filter.reset()
 
                 except Exception as e:
                     print(f'⚠ Tracking error: {e}')
+                    depth_filter.reset()
+
+            else:
+                depth_filter.reset()
 
             # state machine update
             state = state_controller.update(hand_detected, world_x, world_y, world_z)
